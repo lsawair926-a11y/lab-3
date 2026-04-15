@@ -1,0 +1,158 @@
+#include "mbed.h"
+#include "arm_book_lib.h"
+
+
+DigitalIn gasDetector(D2);
+DigitalIn overTempDetector(D3);
+DigitalOut alarmLed(LED1);
+
+
+UnbufferedSerial uartUsb(USBTX, USBRX, 115200);
+
+
+bool alarmState = OFF;
+bool gasAlarmSimulated = OFF;
+bool tempAlarmSimulated = OFF;
+bool monitoringMode = OFF;
+Timer monitoringTimer;
+
+
+void inputsInit();
+void outputsInit();
+void alarmActivationUpdate();
+void uartTask();
+void availableCommands();
+
+
+int main()
+{
+    inputsInit();
+    outputsInit();
+
+    monitoringTimer.start();
+
+    while (true) {
+        alarmActivationUpdate();
+        uartTask();
+    }
+}
+
+
+void inputsInit()
+{
+    gasDetector.mode(PullDown);
+    overTempDetector.mode(PullDown);
+}
+
+void outputsInit()
+{
+    alarmLed = OFF;
+}
+
+void alarmActivationUpdate()
+{
+    if ( gasDetector || overTempDetector || gasAlarmSimulated || tempAlarmSimulated ) {
+        alarmState = ON;
+    } else {
+        alarmState = OFF;
+    }
+
+    alarmLed = alarmState;
+}
+
+
+void uartTask()
+{
+    char receivedChar = '\0';
+
+    if (uartUsb.readable()) {
+
+        uartUsb.read(&receivedChar, 1);
+
+        switch(receivedChar) {
+
+        case '1':
+            gasAlarmSimulated = !gasAlarmSimulated;
+            uartUsb.write("Gas alarm toggled\r\n", 21);
+
+            if (gasAlarmSimulated) {
+                uartUsb.write("WARNING: GAS DETECTED\r\n", 25);
+            }
+            break;
+
+        case '2':
+            if (gasAlarmSimulated) {
+                uartUsb.write("GAS ALARM ACTIVE\r\n", 20);
+            } else {
+                uartUsb.write("GAS ALARM CLEAR\r\n", 19);
+            }
+            break;
+
+        case '3':
+            if (tempAlarmSimulated) {
+                uartUsb.write("TEMP ALARM ACTIVE\r\n", 21);
+            } else {
+                uartUsb.write("TEMP ALARM CLEAR\r\n", 20);
+            }
+            break;
+
+        case '4':
+            tempAlarmSimulated = !tempAlarmSimulated;
+            uartUsb.write("Temp alarm toggled\r\n", 22);
+
+            if (tempAlarmSimulated) {
+                uartUsb.write("WARNING: TEMPERATURE TOO HIGH\r\n", 33);
+            }
+            break;
+
+        case '5':
+            gasAlarmSimulated = OFF;
+            tempAlarmSimulated = OFF;
+            alarmState = OFF;
+
+            uartUsb.write("ALARMS RESET\r\n", 15);
+            break;
+
+        case '6':
+            monitoringMode = !monitoringMode;
+
+            monitoringTimer.reset();
+
+            uartUsb.write("Monitoring mode toggled\r\n", 26);
+            break;
+
+        default:
+            availableCommands();
+            break;
+        }
+    }
+
+
+    if (monitoringMode && monitoringTimer.elapsed_time().count() > 2000000) {
+
+        monitoringTimer.reset();
+
+        if (gasAlarmSimulated) {
+            uartUsb.write("GAS: ACTIVE ", 13);
+        } else {
+            uartUsb.write("GAS: CLEAR ", 12);
+        }
+
+        if (tempAlarmSimulated) {
+            uartUsb.write("TEMP: ACTIVE\r\n", 16);
+        } else {
+            uartUsb.write("TEMP: CLEAR\r\n", 15);
+        }
+    }
+}
+
+void availableCommands()
+{
+    uartUsb.write("Available commands:\r\n", 21);
+    uartUsb.write("1: Toggle Gas Alarm\r\n", 22);
+    uartUsb.write("2: Read Gas Alarm State\r\n", 27);
+    uartUsb.write("3: Read Temp Alarm State\r\n", 28);
+    uartUsb.write("4: Toggle Temp Alarm\r\n", 23);
+    uartUsb.write("5: Reset Alarms\r\n", 18);
+    uartUsb.write("6: Toggle Monitoring Mode\r\n\r\n", 30);
+}
